@@ -117,7 +117,6 @@ export default function App() {
     if (!tecnico.codigo.trim()) e.codigo = req
     for (const clave of FIRMANTES.map((f) => f.clave)) {
       if (!firmantes[clave].nombre.trim()) e[`${clave}-nombre`] = req
-      if (!digitosCedula(firmantes[clave].cedula)) e[`${clave}-cedula`] = req
     }
     if (!horario) e.horario = 'Carga el horario del mes'
     else if (!columna) e.columna = 'Elige tu columna en el horario'
@@ -131,7 +130,7 @@ export default function App() {
     setErrores(e)
     const orden = [
       'nombre', 'cedula', 'codigo',
-      ...FIRMANTES.flatMap((f) => [`${f.clave}-nombre`, `${f.clave}-cedula`]),
+      ...FIRMANTES.map((f) => `${f.clave}-nombre`),
       'horario', 'columna', 'marcaje', 'empleado',
     ]
     const primero = orden.find((k) => e[k])
@@ -222,9 +221,7 @@ export default function App() {
     }
   }
 
-  const firmantesCompletos = FIRMANTES.every(
-    (f) => firmantes[f.clave].nombre.trim() && digitosCedula(firmantes[f.clave].cedula),
-  )
+  const firmantesCompletos = FIRMANTES.every((f) => firmantes[f.clave].nombre.trim())
   const valorMes = `${periodo.anio}-${String(periodo.mes).padStart(2, '0')}`
   const empleadoSel = marcaje?.empleados.find((e) => e.codigo === empleado)
   const horarioCubre =
@@ -331,12 +328,10 @@ export default function App() {
                     <Campo
                       id={`campo-${clave}-cedula`}
                       etiqueta="Cédula"
-                      obligatorio
-                      placeholder="Ej.: 12345678"
+                      placeholder="Opcional"
                       inputMode="numeric"
                       value={firmantes[clave].cedula}
                       disabled={bloqueado}
-                      error={errores[`${clave}-cedula`]}
                       onChange={(e) => setFirmante(clave, 'cedula', e.target.value)}
                     />
                   </div>

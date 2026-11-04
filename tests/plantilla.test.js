@@ -45,4 +45,27 @@ describe('plantilla oficial', () => {
     expect(v('K35')).toBe('Aprobador Tres')
     expect(v('K36')).toBe('V - 33.333.333')
   })
+
+  it('la cédula del firmante es opcional: si falta, la celda queda vacía', async () => {
+    const salida = await llenarFormato(
+      plantilla(),
+      {
+        tecnico: { nombre: 'Ana Pérez', cedula: '12345678', codigo: '100' },
+        firmantes: {
+          revisor1: { nombre: 'Revisor Uno', cedula: '' },
+          revisor2: { nombre: 'Revisor Dos' },
+          aprobador: { nombre: 'Aprobador Tres', cedula: '33333333' },
+        },
+        corte: { desde: '2026-10-15', hasta: '2026-10-31' },
+        dias: [],
+        totales: {},
+      },
+      'uint8array',
+    )
+    const hoja = await (await JSZip.loadAsync(salida)).file('xl/worksheets/sheet1.xml').async('string')
+    expect(celda(hoja, 'E35')[2]).toContain('Revisor Uno')
+    expect(celda(hoja, 'E36')[1]).toBe('/>')
+    expect(celda(hoja, 'H36')[1]).toBe('/>')
+    expect(celda(hoja, 'K36')[2]).toContain('V - 33.333.333')
+  })
 })
