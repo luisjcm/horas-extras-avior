@@ -1,0 +1,7 @@
+node_modules
+dist
+.env
+.env.*
+*.local
+# Archivos reales de marcaje/horario: datos personales, no subir al repo
+datos/

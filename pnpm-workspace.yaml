@@ -1,0 +1,5 @@
+# pnpm 10+: permite el script de instalación de esbuild (equivale a "pnpm approve-builds")
+onlyBuiltDependencies:
+  - esbuild
+allowBuilds:
+  esbuild: true
