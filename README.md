@@ -26,6 +26,9 @@ expone información sensible:
   Los archivos reales de prueba van en `datos/`, carpeta excluida de Git.
 - **Despliegue estático.** Vercel solo sirve los archivos compilados (HTML, JS, CSS e
   iconos). No hay variables de entorno ni secretos.
+- **No indexable.** El sitio responde con `X-Robots-Tag: noindex, nofollow` en todas sus
+  rutas (`vercel.json`) y lo repite en una etiqueta `<meta name="robots">`, para que los
+  buscadores no lo muestren en sus resultados.
 - El Excel generado lo descarga o comparte el propio usuario. Las firmas se hacen a mano
   en el impreso.
 
@@ -131,9 +134,9 @@ La prueba de integración usa archivos reales en `datos/` (`datos/horario_octubr
 
 ## Despliegue
 
-Vercel detecta Vite automáticamente (build `pnpm build`, salida `dist`). `vercel.json` marca
-`sw.js` como `no-cache` para que el navegador busque la versión nueva del service
-worker en cada visita.
+Vercel detecta Vite automáticamente (build `pnpm build`, salida `dist`). `vercel.json`
+añade `X-Robots-Tag: noindex` a todas las rutas y marca `sw.js` como `no-cache` para que el
+navegador busque la versión nueva del service worker en cada visita.
 
 ---
 
