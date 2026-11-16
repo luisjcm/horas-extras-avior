@@ -1,19 +1,21 @@
 import { useMemo, useRef, useState } from 'react'
 import {
   Calculator, CalendarRange, CalendarDays, Download, FilePlus2, Fingerprint, Headset,
-  ListChecks, Pencil, PenLine, Share2, UserRound,
+  ListChecks, MessageSquareText, Pencil, PenLine, Share2, UserRound,
 } from 'lucide-react'
 import plantillaUrl from './assets/plantilla_horas_extras.xlsx?url'
-import RevisionDias from './components/RevisionDias.jsx'
+import MapaQuincena from './components/MapaQuincena.jsx'
 import VistaResultado from './components/VistaResultado.jsx'
 import { Boton, BotonArchivo, Campo, Insignia, Seccion } from './components/ui.jsx'
 import { usePersistentState } from './hooks/usePersistentState.js'
 import { CLAVE, estadoInicial, migrateState, periodoPorDefecto } from './lib/estado.js'
-import { llenarFormato } from './lib/formato.js'
-import { interpretarHorario, sugerirTecnico } from './lib/horario.js'
+import { llenarFormato, MAX_OBSERVACIONES } from './lib/formato.js'
+import { catalogoTurnos, interpretarHorario, sugerirTecnico } from './lib/horario.js'
 import { interpretarMarcaje, marcasPorDia, sugerirEmpleado } from './lib/marcaje.js'
 import { totalizar } from './lib/motor.js'
-import { armarQuincena, corteSugerido, diasQuincena, digitosCedula, nombreArchivo } from './lib/periodo.js'
+import {
+  armarQuincena, corteSugerido, diasQuincena, digitosCedula, ESTADOS_PENDIENTES, nombreArchivo, textoCambiosGuardia,
+} from './lib/periodo.js'
 import { isoADmy, NOMBRES_MES } from './lib/tiempo.js'
 import { ErrorArchivo, leerPrimeraHoja } from './lib/xlsxLectura.js'
 
@@ -33,7 +35,7 @@ export default function App() {
   const [ocupado, setOcupado] = useState(false)
   const timerAviso = useRef(null)
 
-  const { tecnico, firmantes, periodo, horario, columna, marcaje, empleado, ajustes, generado } = estado
+  const { tecnico, firmantes, periodo, horario, columna, marcaje, empleado, ajustes, observaciones, generado } = estado
   const bloqueado = Boolean(generado)
 
   const avisar = (texto, tono = 'info') => {
@@ -59,6 +61,7 @@ export default function App() {
     setEstado((s) => ({ ...s, periodo: { anio, mes, quincena, ...corteSugerido(anio, mes, quincena) }, ajustes: {} }))
 
   // --- Cálculo de la quincena (se recalcula en vivo)
+  const catalogo = useMemo(() => catalogoTurnos(horario), [horario])
   const dias = useMemo(() => {
     if (!horario || !columna || !marcaje || !empleado) return []
     return armarQuincena(
@@ -66,10 +69,12 @@ export default function App() {
       horario.porTecnico[columna] || {},
       marcasPorDia(marcaje, empleado),
       ajustes,
+      { catalogo },
     )
-  }, [horario, columna, marcaje, empleado, ajustes, periodo.anio, periodo.mes, periodo.quincena])
+  }, [horario, columna, marcaje, empleado, ajustes, catalogo, periodo.anio, periodo.mes, periodo.quincena])
   const totales = useMemo(() => totalizar(dias.map((d) => d.resultado)), [dias])
-  const pendientes = dias.filter((d) => ['sin-marcaje', 'incompleto', 'revisar'].includes(d.resultado.estado))
+  const pendientes = dias.filter((d) => ESTADOS_PENDIENTES.includes(d.resultado.estado))
+  const lineaCambios = textoCambiosGuardia(dias)
   const archivo = nombreArchivo(tecnico.nombre, periodo.anio, periodo.mes, periodo.quincena)
 
   // --- Carga de archivos
@@ -96,14 +101,22 @@ export default function App() {
     }
   }
 
+  // Ajustes del mapa: un valor undefined elimina esa clave; un día sin claves vuelve al Excel
   function onAjuste(fecha, cambio) {
     setEstado((s) => {
       const aj = { ...s.ajustes }
-      if (cambio == null) delete aj[fecha]
-      else {
-        const prev = aj[fecha] || {}
-        aj[fecha] = { ...prev, ...cambio }
-      }
+      const dia = { ...(aj[fecha] || {}), ...cambio }
+      for (const k of Object.keys(dia)) if (dia[k] === undefined) delete dia[k]
+      if (Object.keys(dia).length) aj[fecha] = dia
+      else delete aj[fecha]
+      return { ...s, ajustes: aj }
+    })
+  }
+
+  function onRestablecer(fecha) {
+    setEstado((s) => {
+      const aj = { ...s.ajustes }
+      delete aj[fecha]
       return { ...s, ajustes: aj }
     })
   }
@@ -145,7 +158,7 @@ export default function App() {
     if (pendientes.length) {
       const lista = pendientes.map((d) => isoADmy(d.fecha).slice(0, 5)).join(', ')
       const ok = window.confirm(
-        `Hay ${pendientes.length} día(s) por revisar (${lista}): sin marcaje, marca incompleta u horario no reconocido.\n\n¿Generar de todos modos?`,
+        `Hay ${pendientes.length} día(s) por revisar (${lista}): sin marcaje, marca incompleta, horario no reconocido o posible cambio de guardia.\n\n¿Generar de todos modos?`,
       )
       if (!ok) return
     }
@@ -164,10 +177,10 @@ export default function App() {
 
   function nuevo() {
     const ok = window.confirm(
-      '¿Empezar una nueva quincena?\n\nSe borran el marcaje y los ajustes. Se conservan tus datos de técnico y el horario del mes.',
+      '¿Empezar una nueva quincena?\n\nSe borran el marcaje, los ajustes del mapa y las observaciones. Se conservan tus datos de técnico y el horario del mes.',
     )
     if (!ok) return
-    setEstado((s) => ({ ...s, periodo: periodoPorDefecto(), marcaje: null, empleado: '', ajustes: {}, generado: null }))
+    setEstado((s) => ({ ...s, periodo: periodoPorDefecto(), marcaje: null, empleado: '', ajustes: {}, observaciones: '', generado: null }))
     setErrores({})
     setVista('captura')
     avisar('Listo para una nueva quincena')
@@ -175,7 +188,9 @@ export default function App() {
 
   async function construirArchivo() {
     const plantilla = await (await fetch(plantillaUrl)).arrayBuffer()
-    const blob = await llenarFormato(plantilla, { tecnico, firmantes, corte: { desde: periodo.desde, hasta: periodo.hasta }, dias, totales })
+    const blob = await llenarFormato(plantilla, {
+      tecnico, firmantes, corte: { desde: periodo.desde, hasta: periodo.hasta }, dias, totales, observaciones,
+    })
     return new File([blob], archivo, { type: blob.type })
   }
 
@@ -409,6 +424,17 @@ export default function App() {
                   <p className="text-xs text-avior-muted">
                     Cubre del {isoADmy(horario.desde)} al {isoADmy(horario.hasta)}
                   </p>
+                  {horario.ajusteAnio && (
+                    <p className="text-xs font-medium text-amber-300">
+                      Las fechas del Excel dicen {horario.ajusteAnio.de}, pero los días de la semana corresponden a{' '}
+                      {horario.ajusteAnio.a}. Se usó {horario.ajusteAnio.a}.
+                    </p>
+                  )}
+                  {horario.notas?.map((n) => (
+                    <p key={n} className="text-xs font-medium text-amber-300">
+                      {n}. Si no es así, corrígelo en el mapa de la quincena.
+                    </p>
+                  ))}
                   {!horarioCubre && (
                     <p className="text-xs font-medium text-amber-300">
                       Este horario no cubre todos los días de la quincena elegida. Revisa el mes o carga el horario correcto.
@@ -489,7 +515,7 @@ export default function App() {
             {dias.length > 0 && (
               <Seccion
                 icono={ListChecks}
-                titulo="Revisión por día"
+                titulo="Mapa de la quincena"
                 estado={
                   pendientes.length ? (
                     <Insignia tono="aviso">{pendientes.length} por revisar</Insignia>
@@ -498,10 +524,40 @@ export default function App() {
                   )
                 }
               >
-                <p className="text-xs text-avior-muted">
-                  Toca un día para ver el desglose del cálculo o corregir la entrada y salida.
-                </p>
-                <RevisionDias dias={dias} bloqueado={bloqueado} onAjuste={onAjuste} />
+                <MapaQuincena
+                  dias={dias}
+                  catalogo={catalogo}
+                  bloqueado={bloqueado}
+                  onAjuste={onAjuste}
+                  onRestablecer={onRestablecer}
+                />
+              </Seccion>
+            )}
+
+            {dias.length > 0 && (
+              <Seccion icono={MessageSquareText} titulo="Observaciones (opcional)">
+                <Campo
+                  as="textarea"
+                  id="campo-observaciones"
+                  etiqueta="Van en el campo 20 del formato"
+                  rows={3}
+                  maxLength={MAX_OBSERVACIONES}
+                  placeholder="Ej.: Cambio de guardia con Nelson Guanipa el 07/11."
+                  value={observaciones}
+                  disabled={bloqueado}
+                  className="resize-y"
+                  onChange={(e) => actualizar({ observaciones: e.target.value })}
+                  ayuda={`${observaciones.length}/${MAX_OBSERVACIONES} caracteres`}
+                />
+                {lineaCambios && !observaciones.includes(lineaCambios) && !bloqueado && (
+                  <button
+                    type="button"
+                    onClick={() => actualizar({ observaciones: [observaciones.trim(), lineaCambios].filter(Boolean).join('\n').slice(0, MAX_OBSERVACIONES) })}
+                    className="flex items-center gap-1 text-xs font-medium text-avior-light"
+                  >
+                    + Añadir los cambios de guardia de la quincena
+                  </button>
+                )}
               </Seccion>
             )}
 

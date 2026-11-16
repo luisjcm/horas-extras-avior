@@ -12,8 +12,11 @@ La plantilla no contiene datos de personas: técnico y firmantes se escriben en 
 2. Elige mes y quincena; revisa la fecha de corte.
 3. Carga el horario del mes (.xlsx) y verifica tu columna.
 4. Carga el marcaje (.xlsx) del Bioadmin.
-5. Revisa los días: toca uno para ver el desglose o corregir entrada/salida.
-6. **Generar** → **Descargar** o **Compartir**. Las firmas se hacen a mano en el impreso.
+5. Revisa el **mapa de la quincena**: toca un día para cambiar el horario asignado
+   (turnos del horario, Libre u otro), corregir entrada/salida, marcar feriado y ver el
+   desglose. Los cambios de guardia se detectan solos y se pueden descartar.
+6. Observaciones opcionales (campo 20), con atajo para añadir los cambios de guardia.
+7. **Generar** → **Descargar** o **Compartir**. Las firmas se hacen a mano en el impreso.
 
 ## Reglas de cálculo (`src/lib/motor.js`, `src/data/reglas.js`)
 - Bono nocturno: parte del horario asignado entre 19:00 y 04:59.
@@ -23,6 +26,15 @@ La plantilla no contiene datos de personas: técnico y firmantes se escriben en 
 - Redondeo: medias horas completas + 0,5 si la fracción restante ≥ `umbralMinutos`
   (20 min, pendiente de confirmar).
 - Domingo laborado en la rotación, día libre laborado y feriado laborado = 1.
+- Cambio de guardia (`src/lib/guardia.js`): si lo marcado cubre menos de la mitad del
+  turno asignado y otro turno del horario se cubre al menos en un 60 %, se calcula con
+  ese turno. Si otro turno encaja casi completo y claramente mejor, se sugiere.
+
+## Horario
+- Si el Excel trae la columna de días de la semana y no coincide con las fechas, se
+  corrige el año (p. ej. fechas con 2025 y días de 2026).
+- Turnos de más de 16 h se interpretan como hora de 12 h ("05:00 - 01:00" = 05:00–13:00)
+  y se avisa para confirmar.
 
 ## Desarrollo
 ```powershell

@@ -35,6 +35,7 @@ export function estadoInicial() {
     marcaje: null,
     empleado: '',
     ajustes: {},
+    observaciones: '',
     generado: null,
   }
 }
@@ -70,6 +71,7 @@ export function migrateState(saved) {
     marcaje,
     empleado: marcaje && marcaje.empleados.some((e) => e.codigo === s.empleado) ? s.empleado : '',
     ajustes: obj(s.ajustes) || {},
+    observaciones: txt(s.observaciones),
     generado: obj(s.generado),
   }
 }

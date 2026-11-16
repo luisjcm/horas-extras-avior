@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import JSZip from 'jszip'
 import { describe, expect, it } from 'vitest'
 import { llenarFormato } from '../src/lib/formato.js'
-import { interpretarHorario, sugerirTecnico } from '../src/lib/horario.js'
+import { catalogoTurnos, interpretarHorario, sugerirTecnico } from '../src/lib/horario.js'
 import { interpretarMarcaje, marcasPorDia, sugerirEmpleado } from '../src/lib/marcaje.js'
 import { totalizar } from '../src/lib/motor.js'
 import { armarQuincena, corteSugerido, diasQuincena } from '../src/lib/periodo.js'
@@ -46,5 +46,35 @@ describe.skipIf(!hay)('octubre 2026 con archivos reales', () => {
     expect(zip.file('xl/comments1.xml')).toBeTruthy()
     const { writeFileSync } = await import('node:fs')
     writeFileSync('datos/salida_prueba.xlsx', blob)
+  })
+})
+
+const hayNov = ['horario_noviembre', 'marcaje_noviembre', 'horario_miq', 'marcaje_alejandro', 'marcaje_antonio']
+  .every((n) => existsSync(`datos/${n}.xlsx`))
+
+describe.skipIf(!hayNov)('noviembre 2026 con archivos reales', () => {
+  const cargar = async (horario, marcaje, nombre) => {
+    const h = interpretarHorario((await leerPrimeraHoja(leer(`datos/${horario}.xlsx`))).filas)
+    const mj = interpretarMarcaje((await leerPrimeraHoja(leer(`datos/${marcaje}.xlsx`))).filas)
+    const col = sugerirTecnico(nombre, h.tecnicos)
+    const dias = armarQuincena(diasQuincena(2026, 11, 1), h.porTecnico[col], marcasPorDia(mj, mj.empleados[0].codigo), {}, {
+      catalogo: catalogoTurnos(h), feriados: [],
+    })
+    return { h, col, dias, totales: totalizar(dias.map((d) => d.resultado)) }
+  }
+
+  it('Help Desk: Luis con cambio de guardia el 07/11', async () => {
+    const { dias, totales } = await cargar('horario_noviembre', 'marcaje_noviembre', 'Luis Jesús Curbata Marcano')
+    expect(dias.find((d) => d.fecha === '2026-11-07').cambio?.auto).toBe(true)
+    expect(totales).toMatchObject({ bono: 14.5, diurnas: 2.5, domingo: 3 })
+  })
+
+  it('MIQ: el horario con año 2025 se corrige y ya no hay "sin horario cargado"', async () => {
+    for (const [m, n] of [['marcaje_alejandro', 'Alejandro De Sousa'], ['marcaje_antonio', 'Antonio Becerra']]) {
+      const { h, col, dias } = await cargar('horario_miq', m, n)
+      expect(h.ajusteAnio).toEqual({ de: 2025, a: 2026 })
+      expect(col).toBe(n)
+      expect(dias.every((d) => d.asignado?.texto !== 'sin horario cargado')).toBe(true)
+    }
   })
 })

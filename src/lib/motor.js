@@ -23,6 +23,11 @@ export function minutosNocturnos(a, b, reglas = REGLAS) {
   return total
 }
 
+// Minutos en común entre [a, b) y [c, d)
+export function solape(a, b, c, d) {
+  return Math.max(0, Math.min(b, d) - Math.max(a, c))
+}
+
 export function redondearHoras(minutos, umbral = REGLAS.umbralMinutos) {
   if (minutos <= 0) return 0
   const medias = Math.floor(minutos / 30)
@@ -70,9 +75,12 @@ export function calcularDia({ fecha, asignado, entrada, salida, feriado = false 
     estado: 'normal', detalle: [],
   }
   const e = aMinutos(entrada)
-  const s = aMinutos(salida)
-  const trabajo = e != null && s != null && s > e
+  let s = aMinutos(salida)
   const libre = asignado == null
+  // Turno que cruza la medianoche (p. ej. 21:00–05:00): la salida es del día siguiente
+  const nocturnoCruzado = !libre && asignado.inicio && aMinutos(asignado.fin) <= aMinutos(asignado.inicio)
+  if (nocturnoCruzado && e != null && s != null && s <= e) s += 1440
+  const trabajo = e != null && s != null && s > e
 
   if (!libre && asignado.texto != null) {
     r.estado = 'revisar'
@@ -101,6 +109,13 @@ export function calcularDia({ fecha, asignado, entrada, salida, feriado = false 
     if (e == null && s == null) {
       r.estado = 'sin-marcaje'
       r.detalle.push('Turno asignado sin marcaje')
+      return r
+    }
+    if (trabajo && solape(e, s, ini, fin) === 0) {
+      r.estado = 'revisar'
+      r.detalle.push(
+        `Las marcas (${aHHMM(e)}–${aHHMM(s)}) no coinciden con el horario asignado (${asignado.inicio}–${asignado.fin}); ajusta el día`,
+      )
       return r
     }
     const noct = minutosNocturnos(ini, fin, reglas)

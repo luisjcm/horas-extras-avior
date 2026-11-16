@@ -29,6 +29,23 @@ function ponerTotal(xmlHoja, col, total) {
   return xmlHoja.replace(re, `$1<v>${total}</v>`)
 }
 
+export const MAX_OBSERVACIONES = 400
+const ETIQUETA_OBS = '20. Observaciones: '
+const CARACTERES_POR_LINEA = 180 // A31:K32 combinada, Arial 8
+
+// Campo 20 (A31:K32 combinada). La etiqueta se conserva y el texto va a continuación;
+// la fila 31 crece según las líneas para que el texto no quede cortado al imprimir.
+export function ponerObservaciones(xmlHoja, texto) {
+  const limpio = String(texto || '').replace(/\r/g, '').trim().slice(0, MAX_OBSERVACIONES)
+  let x = ponerCelda(xmlHoja, 'A31', ETIQUETA_OBS + limpio)
+  const lineas = (ETIQUETA_OBS + limpio)
+    .split('\n')
+    .reduce((n, l) => n + Math.max(1, Math.ceil(l.length / CARACTERES_POR_LINEA)), 0)
+  const alto = Math.max(15, lineas * 11 + 4)
+  x = x.replace(/(<row r="31"[^>]*?) ht="[\d.]+"/, `$1 ht="${alto}"`)
+  return x
+}
+
 /**
  * @param {ArrayBuffer} plantilla
  * @param {object} datos
@@ -37,10 +54,11 @@ function ponerTotal(xmlHoja, col, total) {
  * @param {{desde:string, hasta:string}} datos.corte ISO
  * @param {Array} datos.dias resultado de armarQuincena
  * @param {object} datos.totales resultado de totalizar
+ * @param {string} [datos.observaciones] texto libre para el campo 20
  * @param {'blob'|'uint8array'} [tipo] salida (uint8array solo para pruebas)
  * @returns {Promise<Blob>}
  */
-export async function llenarFormato(plantilla, { tecnico, firmantes = {}, corte, dias, totales }, tipo = 'blob') {
+export async function llenarFormato(plantilla, { tecnico, firmantes = {}, corte, dias, totales, observaciones = '' }, tipo = 'blob') {
   if (dias.length > FILAS) throw new Error(`El formato admite ${FILAS} días y la quincena tiene ${dias.length}`)
   const zip = await JSZip.loadAsync(plantilla)
   let x = await zip.file(HOJA).async('string')
@@ -70,6 +88,7 @@ export async function llenarFormato(plantilla, { tecnico, firmantes = {}, corte,
     x = ponerCelda(x, `K${fila}`, null)
   }
   for (const [k, col] of Object.entries(COLS)) x = ponerTotal(x, col, totales[k] || 0)
+  x = ponerObservaciones(x, observaciones)
   zip.file(HOJA, x)
 
   // Excel recalcula totales y =HOY() al abrir

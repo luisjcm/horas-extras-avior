@@ -82,6 +82,9 @@ export default function VistaResultado({ estado, dias, totales, archivo }) {
               </tr>
             </tbody>
           </table>
+          <p className="mt-2 whitespace-pre-line border border-black p-1">
+            <b>20. Observaciones:</b> {estado.observaciones}
+          </p>
           <div className="mt-2 grid grid-cols-4 border border-black">
             {[
               ['21. Elaborado por', { nombre: nombreCorto(tecnico.nombre), cedula: tecnico.cedula }],
