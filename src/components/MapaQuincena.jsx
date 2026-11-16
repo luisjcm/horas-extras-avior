@@ -141,7 +141,7 @@ function PanelVacio({ dia, bloqueado, onAjuste, onTrabaje }) {
             extras.
           </span>
         </p>
-        <div className="flex flex-wrap gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {TIPOS_AUSENCIA.map((t) => (
             <Chip
               key={t.id}
@@ -161,7 +161,7 @@ function PanelVacio({ dia, bloqueado, onAjuste, onTrabaje }) {
               maxLength={80}
               disabled={bloqueado}
               value={ausencia.nota}
-              placeholder="Ej.: cita médica, permiso aprobado por el jefe"
+              placeholder="Ej.: cita médica"
               onChange={(e) => onAjuste(fecha, { ausencia: { tipo: ausencia.tipo, nota: e.target.value } })}
               className={`${inputHora} placeholder:text-avior-muted/60`}
             />

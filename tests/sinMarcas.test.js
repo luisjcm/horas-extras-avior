@@ -77,34 +77,44 @@ describe('"Trabajé, no se registró"', () => {
 
 describe('"No trabajé": ausencia', () => {
   it('el motor no da bono ni extras y no queda pendiente', () => {
-    const r = calcularDia({ fecha: '2026-11-05', asignado: M, entrada: null, salida: null, ausencia: { tipo: 'permiso', etiqueta: 'Permiso' } })
+    const r = calcularDia({ fecha: '2026-11-05', asignado: M, entrada: null, salida: null, ausencia: { tipo: 'permiso-remunerado', etiqueta: 'Permiso remunerado' } })
     expect(r).toMatchObject({ estado: 'ausencia', bono: 0, diurnas: 0, nocturnas: 0, domingo: 0 })
     expect(ESTADOS_PENDIENTES).not.toContain('ausencia')
   })
   it('se arma con tipo, nota y columna K; el laborado queda vacío', () => {
-    const d = dia5({ '2026-11-05': { ausencia: { tipo: 'permiso', nota: 'cita médica' } } })
-    expect(d.ausencia).toEqual({ tipo: 'permiso', etiqueta: 'Permiso', columnaK: 'Permiso', nota: 'cita médica' })
+    const d = dia5({ '2026-11-05': { ausencia: { tipo: 'permiso-remunerado', nota: 'cita médica' } } })
+    expect(d.ausencia).toEqual({
+      tipo: 'permiso-remunerado', etiqueta: 'Permiso remunerado', columnaK: 'Permiso remunerado', nota: 'cita médica',
+    })
     expect(d.resultado.estado).toBe('ausencia')
     expect(textoLaborado(d)).toBe('')
   })
-  it('un tipo desconocido se ignora y el día sigue pendiente', () => {
-    expect(dia5({ '2026-11-05': { ausencia: { tipo: 'xyz' } } }).resultado.estado).toBe('sin-marcaje')
+  it('un tipo desconocido o de la versión anterior se ignora y el día vuelve a quedar pendiente', () => {
+    for (const tipo of ['xyz', 'otro', 'permiso', 'inasistencia']) {
+      expect(dia5({ '2026-11-05': { ausencia: { tipo } } }).resultado.estado, tipo).toBe('sin-marcaje')
+    }
+  })
+  it('los seis tipos son los de la cabecera de la columna 19', async () => {
+    const { TIPOS_AUSENCIA } = await import('../src/data/ausencias.js')
+    expect(TIPOS_AUSENCIA.map((t) => t.columnaK)).toEqual([
+      'Injustificada', 'Justificada', 'Permiso remunerado', 'Permiso no remunerado', 'Reposo', 'Vacaciones',
+    ])
   })
   it('los totales no cambian por la ausencia', () => {
     const base = totalizar(armar().map((d) => d.resultado))
-    const conAusencia = totalizar(armar({ '2026-11-05': { ausencia: { tipo: 'inasistencia' } } }).map((d) => d.resultado))
+    const conAusencia = totalizar(armar({ '2026-11-05': { ausencia: { tipo: 'injustificada' } } }).map((d) => d.resultado))
     expect(conAusencia).toEqual(base)
   })
   it('líneas para observaciones', () => {
     const dias = armar({ '2026-11-05': { ausencia: { tipo: 'reposo', nota: 'gripe' } } })
-    expect(textoAusencias(dias)).toBe('Ausencia: 05/11 Reposo médico, gripe.')
-    expect(lineasObservacion(dias)).toEqual(['Ausencia: 05/11 Reposo médico, gripe.'])
+    expect(textoAusencias(dias)).toBe('Ausencia: 05/11 Reposo, gripe.')
+    expect(lineasObservacion(dias)).toEqual(['Ausencia: 05/11 Reposo, gripe.'])
   })
 })
 
 describe('formato oficial', () => {
   it('escribe el tipo de ausencia en la columna K del día', async () => {
-    const dias = armar({ '2026-11-05': { ausencia: { tipo: 'permiso' } } })
+    const dias = armar({ '2026-11-05': { ausencia: { tipo: 'permiso-no-remunerado' } } })
     const salida = await llenarFormato(
       new Uint8Array(readFileSync('src/assets/plantilla_horas_extras.xlsx')),
       { tecnico: { nombre: 'Prueba Uno', cedula: '1234567', codigo: '1' }, corte: { desde: DIAS[0], hasta: DIAS[5] }, dias, totales: totalizar(dias.map((d) => d.resultado)) },
@@ -112,7 +122,7 @@ describe('formato oficial', () => {
     )
     const hoja = await (await JSZip.loadAsync(salida)).file('xl/worksheets/sheet1.xml').async('string')
     // 05/11 es el 5.º día → fila 18
-    expect(hoja).toMatch(/<c r="K18"[^>]*t="inlineStr"><is><t[^>]*>Permiso<\/t>/)
+    expect(hoja).toMatch(/<c r="K18"[^>]*t="inlineStr"><is><t[^>]*>Permiso no remunerado<\/t>/)
     expect(hoja).toMatch(/<c r="K17"[^>]*\/>/)
   })
 })
