@@ -6,12 +6,14 @@ Todo se procesa en el dispositivo: los archivos no se suben a ningún servidor.
 La plantilla no contiene datos de personas: técnico y firmantes se escriben en la app.
 
 ## Uso
-1. Escribe tus datos (nombre completo, cédula y código de empleado) y los firmantes
-   (revisado por / aprobado por). Quedan guardados en el dispositivo para las próximas
-   quincenas.
+1. Escribe los firmantes (revisado por / aprobado por). Quedan guardados en el
+   dispositivo para las próximas quincenas.
 2. Elige mes y quincena; revisa la fecha de corte.
 3. Carga el horario del mes (.xlsx) y verifica tu columna.
-4. Carga el marcaje (.xlsx) del Bioadmin.
+4. Carga el marcaje (.xlsx) del Bioadmin. Tus datos se llenan solos: Código = cédula,
+   Nombre ("APELLIDOS, NOMBRES") = nombre completo y Núm. Identificación = código de
+   empleado. Puedes corregir las tildes del nombre; se recuerdan para la próxima vez.
+   Con el formato viejo (sin Núm. Identificación) el código de empleado se escribe a mano.
 5. Revisa el **mapa de la quincena**: toca un día para cambiar el horario asignado
    (turnos del horario, Libre u otro), corregir entrada/salida, marcar feriado y ver el
    desglose. Los cambios de guardia se detectan solos y se pueden descartar.

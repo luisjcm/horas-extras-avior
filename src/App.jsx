@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import {
   Calculator, CalendarRange, CalendarDays, Download, FilePlus2, Fingerprint, Headset,
-  ListChecks, MessageSquareText, Pencil, PenLine, Share2, UserRound,
+  Check, ListChecks, Lock, MessageSquareText, Pencil, PenLine, Share2, UserRound,
 } from 'lucide-react'
 import plantillaUrl from './assets/plantilla_horas_extras.xlsx?url'
 import MapaQuincena from './components/MapaQuincena.jsx'
@@ -10,11 +10,13 @@ import { Boton, BotonArchivo, Campo, Insignia, Seccion } from './components/ui.j
 import { usePersistentState } from './hooks/usePersistentState.js'
 import { CLAVE, estadoInicial, migrateState, periodoPorDefecto } from './lib/estado.js'
 import { llenarFormato, MAX_OBSERVACIONES } from './lib/formato.js'
-import { catalogoTurnos, interpretarHorario, sugerirTecnico } from './lib/horario.js'
-import { coberturaMarcaje, interpretarMarcaje, marcasPorDia, sugerirEmpleado } from './lib/marcaje.js'
+import { catalogoTurnos, interpretarHorario, normalizar, sugerirTecnico } from './lib/horario.js'
+import {
+  coberturaMarcaje, interpretarMarcaje, marcasPorDia, nombrePropio, sugerirEmpleado, tecnicoDesdeMarcaje,
+} from './lib/marcaje.js'
 import { totalizar } from './lib/motor.js'
 import {
-  armarQuincena, corteSugerido, diasQuincena, digitosCedula, ESTADOS_PENDIENTES, lineasObservacion, nombreArchivo,
+  armarQuincena, corteSugerido, diasQuincena, digitosCedula, formatoCedula, ESTADOS_PENDIENTES, lineasObservacion, nombreArchivo,
 } from './lib/periodo.js'
 import { isoADmy, NOMBRES_MES } from './lib/tiempo.js'
 import { ErrorArchivo, leerPrimeraHoja } from './lib/xlsxLectura.js'
@@ -27,12 +29,23 @@ const FIRMANTES = [
 
 const vibrar = (ms = 30) => navigator.vibrate?.(ms)
 
+// Aplica el trabajador elegido del marcaje: llena el técnico y reajusta la columna del horario.
+function conEmpleado(s, marcaje, codigo) {
+  const emp = marcaje?.empleados.find((e) => e.codigo === codigo)
+  const base = { ...s, marcaje, empleado: codigo, ajustes: {} }
+  if (!emp) return base
+  const tecnico = tecnicoDesdeMarcaje(emp, s.tecnico)
+  const columna = s.horario ? sugerirTecnico(tecnico.nombre, s.horario.tecnicos) || s.columna : s.columna
+  return { ...base, tecnico, columna }
+}
+
 export default function App() {
   const [estado, setEstado] = usePersistentState(CLAVE, estadoInicial, migrateState)
   const [vista, setVista] = useState(estado.generado ? 'resultado' : 'captura')
   const [errores, setErrores] = useState({})
   const [aviso, setAviso] = useState(null)
   const [ocupado, setOcupado] = useState(false)
+  const [editandoNombre, setEditandoNombre] = useState(false)
   const timerAviso = useRef(null)
 
   const { tecnico, firmantes, periodo, horario, columna, marcaje, empleado, ajustes, observaciones, generado } = estado
@@ -92,8 +105,9 @@ export default function App() {
       } else {
         const m = { archivo: file.name, ...interpretarMarcaje(filas) }
         const cod = sugerirEmpleado(m.empleados, tecnico.cedula, tecnico.nombre)
-        setEstado((s) => ({ ...s, marcaje: m, empleado: cod, ajustes: {} }))
-        limpiarError('marcaje')
+        setEstado((s) => conEmpleado(s, m, cod))
+        setEditandoNombre(false)
+        setErrores((e) => ({ ...e, marcaje: undefined, nombre: undefined, cedula: undefined, codigo: undefined, columna: undefined }))
         avisar(`Marcaje cargado: ${m.marcas.length} marcas`, 'ok')
       }
       vibrar()
@@ -126,9 +140,6 @@ export default function App() {
   function validar() {
     const e = {}
     const req = 'Campo obligatorio'
-    if (!tecnico.nombre.trim()) e.nombre = req
-    if (!digitosCedula(tecnico.cedula)) e.cedula = req
-    if (!tecnico.codigo.trim()) e.codigo = req
     for (const clave of FIRMANTES.map((f) => f.clave)) {
       if (!firmantes[clave].nombre.trim()) e[`${clave}-nombre`] = req
     }
@@ -136,6 +147,12 @@ export default function App() {
     else if (!columna) e.columna = 'Elige tu columna en el horario'
     if (!marcaje) e.marcaje = 'Carga el marcaje del Bioadmin'
     else if (!empleado) e.empleado = 'Elige el trabajador del marcaje'
+    else {
+      // El técnico se llena desde el marcaje; solo puede faltar el código (formato viejo) o un nombre borrado
+      if (!tecnico.nombre.trim()) e.nombre = req
+      if (!digitosCedula(tecnico.cedula)) e.cedula = req
+      if (!tecnico.codigo.trim()) e.codigo = req
+    }
     return e
   }
 
@@ -143,11 +160,12 @@ export default function App() {
     const e = validar()
     setErrores(e)
     const orden = [
-      'nombre', 'cedula', 'codigo',
       ...FIRMANTES.map((f) => `${f.clave}-nombre`),
       'horario', 'columna', 'marcaje', 'empleado',
+      'nombre', 'cedula', 'codigo',
     ]
     const primero = orden.find((k) => e[k])
+    if (primero === 'nombre') setEditandoNombre(true)
     if (primero) {
       const el = document.getElementById(`campo-${primero}`)
       el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -280,44 +298,6 @@ export default function App() {
                 El formato ya está generado. Pulsa <b className="text-avior-ink">Corregir</b> para editar.
               </p>
             )}
-
-            <Seccion icono={UserRound} titulo="Técnico">
-              <Campo
-                id="campo-nombre"
-                etiqueta="Nombres y apellidos"
-                obligatorio
-                placeholder="Ej.: Pedro José Pérez González"
-                autoComplete="name"
-                value={tecnico.nombre}
-                disabled={bloqueado}
-                error={errores.nombre}
-                onChange={(e) => setTecnico('nombre', e.target.value)}
-              />
-              <div className="grid grid-cols-2 gap-3">
-                <Campo
-                  id="campo-cedula"
-                  etiqueta="Cédula"
-                  obligatorio
-                  placeholder="Ej.: 12345678"
-                  inputMode="numeric"
-                  value={tecnico.cedula}
-                  disabled={bloqueado}
-                  error={errores.cedula}
-                  onChange={(e) => setTecnico('cedula', e.target.value)}
-                />
-                <Campo
-                  id="campo-codigo"
-                  etiqueta="Código de empleado"
-                  obligatorio
-                  placeholder="Ej.: 10001234"
-                  inputMode="numeric"
-                  value={tecnico.codigo}
-                  disabled={bloqueado}
-                  error={errores.codigo}
-                  onChange={(e) => setTecnico('codigo', e.target.value)}
-                />
-              </div>
-            </Seccion>
 
             <Seccion
               icono={PenLine}
@@ -489,7 +469,9 @@ export default function App() {
                   error={errores.empleado}
                   onChange={(e) => {
                     limpiarError('empleado')
-                    actualizar({ empleado: e.target.value, ajustes: {} })
+                    const cod = e.target.value
+                    setEstado((st) => conEmpleado(st, st.marcaje, cod))
+                    setEditandoNombre(false)
                   }}
                 >
                   <option value="">Selecciona…</option>
@@ -502,14 +484,103 @@ export default function App() {
               )}
               {empleadoSel && (
                 <p className="text-xs text-avior-muted">
-                  {empleadoSel.nombre} · código {empleadoSel.codigo} · {empleadoSel.total} marcas
-                  {marcaje.ilegibles ? ` · ${marcaje.ilegibles} filas ilegibles ignoradas` : ''}
+                  {empleadoSel.total} marcas
+                  {marcaje.ilegibles ? `, ${marcaje.ilegibles} filas ilegibles ignoradas` : ''}
                 </p>
               )}
-              {empleadoSel && tecnico.cedula && digitosCedula(tecnico.cedula) !== empleadoSel.codigo.replace(/\D/g, '') && (
-                <p className="text-xs font-medium text-amber-300">
-                  El código del marcaje no coincide con la cédula escrita. Verifica que sea tu marcaje.
+            </Seccion>
+
+            <Seccion
+              icono={UserRound}
+              titulo="Técnico"
+              estado={
+                empleadoSel && (
+                  <Insignia>
+                    <span className="flex items-center gap-1">
+                      <Lock className="h-3 w-3" aria-hidden /> Del marcaje
+                    </span>
+                  </Insignia>
+                )
+              }
+            >
+              {!empleadoSel ? (
+                <p className="text-sm text-avior-muted">
+                  Se llena solo al cargar el marcaje: el nombre y la cédula salen del Bioadmin, y el código de empleado de la
+                  columna Núm. Identificación.
                 </p>
+              ) : (
+                <>
+                  {editandoNombre || !tecnico.nombre.trim() ? (
+                    <div className="space-y-2">
+                      <Campo
+                        id="campo-nombre"
+                        etiqueta="Nombres y apellidos (corrige tildes si hace falta)"
+                        obligatorio
+                        autoComplete="name"
+                        value={tecnico.nombre}
+                        disabled={bloqueado}
+                        error={errores.nombre}
+                        onChange={(e) => setTecnico('nombre', e.target.value)}
+                      />
+                      {tecnico.nombre.trim() && (
+                        <button
+                          type="button"
+                          onClick={() => setEditandoNombre(false)}
+                          className="flex min-h-[40px] items-center gap-1 text-xs font-semibold text-avior-light"
+                        >
+                          <Check className="h-3.5 w-3.5" aria-hidden /> Listo
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex items-start justify-between gap-3 rounded-lg border border-avior-line bg-avior-well px-3 py-2.5">
+                      <div className="min-w-0">
+                        <p className="text-xs text-avior-muted">Nombres y apellidos</p>
+                        <p className="break-words text-base font-semibold text-avior-ink">{tecnico.nombre}</p>
+                      </div>
+                      {!bloqueado && (
+                        <button
+                          type="button"
+                          onClick={() => setEditandoNombre(true)}
+                          className="flex min-h-[40px] shrink-0 items-center gap-1 text-xs font-semibold text-avior-light"
+                        >
+                          <Pencil className="h-3.5 w-3.5" aria-hidden /> Corregir tildes
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {normalizar(tecnico.nombre) !== normalizar(nombrePropio(empleadoSel.nombre)) && tecnico.nombre.trim() && (
+                    <p className="text-xs font-medium text-amber-300">
+                      El nombre ya no coincide con el del Bioadmin ({nombrePropio(empleadoSel.nombre)}). Revisa que solo hayas
+                      cambiado tildes.
+                    </p>
+                  )}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-lg border border-avior-line bg-avior-well px-3 py-2.5">
+                      <p className="text-xs text-avior-muted">Cédula</p>
+                      <p className="text-base font-semibold text-avior-ink">{formatoCedula(tecnico.cedula, '-')}</p>
+                    </div>
+                    {empleadoSel.identificacion ? (
+                      <div className="rounded-lg border border-avior-line bg-avior-well px-3 py-2.5">
+                        <p className="text-xs text-avior-muted">Código de empleado</p>
+                        <p className="text-base font-semibold text-avior-ink">{tecnico.codigo}</p>
+                      </div>
+                    ) : (
+                      <Campo
+                        id="campo-codigo"
+                        etiqueta="Código de empleado"
+                        obligatorio
+                        placeholder="Ej.: 10001234"
+                        inputMode="numeric"
+                        value={tecnico.codigo}
+                        disabled={bloqueado}
+                        error={errores.codigo}
+                        ayuda="Este marcaje no trae Núm. Identificación"
+                        onChange={(e) => setTecnico('codigo', e.target.value)}
+                      />
+                    )}
+                  </div>
+                </>
               )}
             </Seccion>
 

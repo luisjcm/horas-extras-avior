@@ -1,5 +1,6 @@
 // Interpreta el reporte de asistencia (Bioadmin):
-//   Código | Nombre | Puesto | Hora Marca ("16-10-2026 12:51:25")
+//   Código | Nombre | Puesto | Hora Marca ("16-10-2026 12:51:25") [| Núm. Identificación]
+// Código = cédula del trabajador. Núm. Identificación (formato nuevo) = código de empleado.
 import { normalizar } from './horario.js'
 import { fraccionAHHMM, isoDe, serialAIso } from './tiempo.js'
 import { ErrorArchivo } from './xlsxLectura.js'
@@ -27,7 +28,8 @@ export function interpretarMarcaje(filas) {
     const idx = {}
     fila.forEach((v, c) => {
       const t = normalizar(v)
-      if (t === 'codigo' || t === 'cod' || t === 'id') idx.codigo = c
+      if (t.includes('identificacion')) idx.identificacion = c
+      else if (t === 'codigo' || t === 'cod' || t === 'id') idx.codigo = c
       else if (t === 'nombre' || t === 'nombres') idx.nombre = c
       else if (t === 'puesto' || t === 'cargo') idx.puesto = c
       else if (t.includes('hora marca') || t === 'marca' || t === 'fecha hora') idx.marca = c
@@ -56,10 +58,13 @@ export function interpretarMarcaje(filas) {
         codigo,
         nombre: String(fila[col.nombre] ?? '').trim(),
         puesto: String(fila[col.puesto] ?? '').trim(),
+        identificacion: '',
         total: 0,
       })
     }
-    empleados.get(codigo).total++
+    const emp = empleados.get(codigo)
+    emp.total++
+    if (!emp.identificacion && col.identificacion != null) emp.identificacion = String(fila[col.identificacion] ?? '').trim()
     marcas.push({ codigo, ...hm })
   }
   if (!marcas.length) throw new ErrorArchivo('El marcaje no tiene marcas legibles.')
@@ -75,6 +80,41 @@ export function marcasPorDia(marcaje, codigo) {
   }
   for (const k of Object.keys(out)) out[k] = [...new Set(out[k])].sort()
   return out
+}
+
+const MINUSCULAS = new Set(['de', 'del', 'la', 'las', 'los', 'y', 'e'])
+
+// "CURBATA MARCANO, LUIS JESUS" → "Luis Jesus Curbata Marcano"
+// El Bioadmin escribe "APELLIDOS, NOMBRES" en mayúsculas y sin tildes.
+export function nombrePropio(texto) {
+  const t = String(texto || '').replace(/\s+/g, ' ').trim()
+  if (!t) return ''
+  const [apellidos, nombres] = t.includes(',') ? t.split(',', 2).map((x) => x.trim()) : ['', t]
+  return [nombres, apellidos]
+    .filter(Boolean)
+    .join(' ')
+    .toLocaleLowerCase('es')
+    .split(' ')
+    .map((w, i) => (i > 0 && MINUSCULAS.has(w) ? w : w.charAt(0).toLocaleUpperCase('es') + w.slice(1)))
+    .join(' ')
+}
+
+/**
+ * Datos del técnico tomados del marcaje. Si el técnico ya había corregido su nombre
+ * (por ejemplo, tildes: "Jesús") y es la misma persona, se conserva su versión.
+ * @returns {{nombre:string, cedula:string, codigo:string}}
+ */
+export function tecnicoDesdeMarcaje(emp, actual = {}) {
+  const cedula = String(emp?.codigo || '').replace(/\D/g, '')
+  const nombre = nombrePropio(emp?.nombre)
+  const mismo =
+    cedula && String(actual.cedula || '').replace(/\D/g, '') === cedula && normalizar(actual.nombre) === normalizar(nombre)
+  return {
+    nombre: mismo ? actual.nombre.trim() : nombre,
+    cedula,
+    // Sin Núm. Identificación (formato viejo) se conserva el código escrito antes por esa persona
+    codigo: emp?.identificacion || (mismo || String(actual.cedula || '').replace(/\D/g, '') === cedula ? actual.codigo || '' : ''),
+  }
 }
 
 // Qué días trae el archivo del Bioadmin (de cualquier empleado), para explicar
