@@ -85,7 +85,7 @@ export async function llenarFormato(plantilla, { tecnico, firmantes = {}, corte,
     x = ponerCelda(x, `B${fila}`, d ? textoHorario(d.asignado) : null)
     x = ponerCelda(x, `C${fila}`, d ? textoLaborado(d) : null)
     for (const [k, col] of Object.entries(COLS)) x = ponerCelda(x, `${col}${fila}`, d ? d.resultado[k] : null)
-    x = ponerCelda(x, `K${fila}`, null)
+    x = ponerCelda(x, `K${fila}`, d?.ausencia?.columnaK || null)
   }
   for (const [k, col] of Object.entries(COLS)) x = ponerTotal(x, col, totales[k] || 0)
   x = ponerObservaciones(x, observaciones)

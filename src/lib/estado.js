@@ -43,6 +43,28 @@ export function estadoInicial() {
 const obj = (x) => (x && typeof x === 'object' && !Array.isArray(x) ? x : null)
 const txt = (x) => (typeof x === 'string' ? x : '')
 
+const HORA = /^\d{2}:\d{2}$/
+const turnoOk = (t) => t === null || (obj(t) && HORA.test(t.inicio) && HORA.test(t.fin))
+
+// Deja en cada día del mapa solo los ajustes conocidos y con forma válida.
+export function limpiarAjustes(a) {
+  const out = {}
+  for (const [fecha, v] of Object.entries(obj(a) || {})) {
+    const d = obj(v)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || !d) continue
+    const x = {}
+    if (HORA.test(d.entrada)) x.entrada = d.entrada
+    if (HORA.test(d.salida)) x.salida = d.salida
+    if ('asignado' in d && turnoOk(d.asignado)) x.asignado = d.asignado && { inicio: d.asignado.inicio, fin: d.asignado.fin }
+    if (d.cambio === false) x.cambio = false
+    if (typeof d.feriado === 'boolean') x.feriado = d.feriado
+    if (d.sinRegistro === true) x.sinRegistro = true
+    if (obj(d.ausencia) && typeof d.ausencia.tipo === 'string') x.ausencia = { tipo: d.ausencia.tipo, nota: txt(d.ausencia.nota) }
+    if (Object.keys(x).length) out[fecha] = x
+  }
+  return out
+}
+
 // Completa o repara un estado guardado (estructura antigua, incompleta o dañada).
 export function migrateState(saved) {
   const base = estadoInicial()
@@ -70,7 +92,7 @@ export function migrateState(saved) {
     columna: horario && horario.tecnicos.includes(s.columna) ? s.columna : '',
     marcaje,
     empleado: marcaje && marcaje.empleados.some((e) => e.codigo === s.empleado) ? s.empleado : '',
-    ajustes: obj(s.ajustes) || {},
+    ajustes: limpiarAjustes(s.ajustes),
     observaciones: txt(s.observaciones),
     generado: obj(s.generado),
   }

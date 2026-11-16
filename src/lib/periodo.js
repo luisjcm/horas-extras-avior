@@ -1,3 +1,4 @@
+import { tipoAusencia } from '../data/ausencias.js'
 import { FERIADOS } from '../data/feriados.js'
 import { detectarCambio, mismoTurno } from './guardia.js'
 import { calcularDia } from './motor.js'
@@ -55,20 +56,27 @@ export function formatoCedula(texto, separador = '-') {
  *   asignado          {inicio, fin} | null (libre): reemplaza el turno del Excel
  *   cambio: false     el técnico indicó que NO es cambio de guardia (no detectar)
  *   feriado: boolean  marca o desmarca el día como feriado
+ *   sinRegistro: true las marcas se cargaron a mano porque el biométrico no registró el día
+ *   ausencia          {tipo, nota?}: el técnico no laboró ese turno (ver data/ausencias.js)
  *
  * @param {string[]} dias ISO de la quincena
  * @param {Record<string, any>} horarioTecnico turnos del Excel por fecha
  * @param {Record<string, string[]>} marcasPorDia 'HH:MM' ordenadas
  * @param {Record<string, object>} ajustes
- * @param {{catalogo?: Array, feriados?: string[]}} opciones
+ * @param {{catalogo?: Array, feriados?: string[], cobertura?: object}} opciones
+ *   cobertura: resultado de coberturaMarcaje, para explicar los días vacíos
  */
 export function armarQuincena(dias, horarioTecnico, marcasPorDia, ajustes = {}, opciones = {}) {
-  const { catalogo = [], feriados = FERIADOS } = Array.isArray(opciones) ? { feriados: opciones } : opciones
+  const { catalogo = [], feriados = FERIADOS, cobertura = null } = Array.isArray(opciones) ? { feriados: opciones } : opciones
   return dias.map((fecha) => {
     const marcas = marcasPorDia[fecha] || []
     const aj = ajustes[fecha] || {}
-    const entrada = aj.entrada || marcas[0] || null
-    const salida = aj.salida || (marcas.length > 1 ? marcas[marcas.length - 1] : null)
+    const tipo = tipoAusencia(aj.ausencia?.tipo)
+    const ausencia = tipo
+      ? { tipo: tipo.id, etiqueta: tipo.etiqueta, columnaK: tipo.columnaK, nota: String(aj.ausencia.nota || '').trim() }
+      : null
+    const entrada = ausencia ? null : aj.entrada || marcas[0] || null
+    const salida = ausencia ? null : aj.salida || (marcas.length > 1 ? marcas[marcas.length - 1] : null)
     const enHorario = Object.prototype.hasOwnProperty.call(horarioTecnico, fecha)
     const original = enHorario ? horarioTecnico[fecha] : { texto: 'sin horario cargado' }
 
@@ -90,7 +98,9 @@ export function armarQuincena(dias, horarioTecnico, marcasPorDia, ajustes = {}, 
     }
 
     const feriado = typeof aj.feriado === 'boolean' ? aj.feriado : feriados.includes(fecha)
-    const resultado = calcularDia({ fecha, asignado, entrada, salida, feriado })
+    const resultado = calcularDia({ fecha, asignado, entrada, salida, feriado, ausencia })
+    const sinRegistro = Boolean(aj.sinRegistro) && !ausencia
+    if (sinRegistro) resultado.detalle.unshift('Marcas cargadas a mano: el biométrico no registró este día')
     if (cambio) {
       resultado.detalle.unshift(
         `${cambio.auto ? 'Cambio de guardia detectado' : 'Horario cambiado a mano'}: ${textoHorario(cambio.de)} → ${textoHorario(cambio.a)}`,
@@ -112,9 +122,23 @@ export function armarQuincena(dias, horarioTecnico, marcasPorDia, ajustes = {}, 
       sugerencia,
       feriadoMarcado: feriado,
       ajustado: Boolean(aj.entrada || aj.salida),
+      vacio: marcas.length === 0 && asignado?.inicio ? diagnosticoVacio(fecha, cobertura) : null,
+      sinRegistro,
+      ausencia,
       resultado,
     }
   })
+}
+
+// Por qué un día con turno no tiene marcas en el archivo del Bioadmin:
+//  'fuera'   el día no está en la descarga (antes de la primera o después de la última marca)
+//  'general' el archivo trae varios empleados y nadie marcó ese día (falla del equipo o de luz)
+//  'propio'  otros días u otros empleados sí tienen marcas; solo falta el técnico
+export function diagnosticoVacio(fecha, cobertura) {
+  if (!cobertura?.desde) return 'propio'
+  if (fecha < cobertura.desde || fecha > cobertura.hasta) return 'fuera'
+  if (cobertura.empleados > 1 && !cobertura.fechas.includes(fecha)) return 'general'
+  return 'propio'
 }
 
 export const ESTADOS_PENDIENTES = ['sin-marcaje', 'incompleto', 'revisar', 'cambio-posible']
@@ -127,6 +151,25 @@ export function textoCambiosGuardia(dias) {
     (d) => `${d.fecha.slice(8, 10)}/${d.fecha.slice(5, 7)} tenía ${textoHorario(d.cambio.de)}, laboró ${textoHorario(d.cambio.a)}`,
   )
   return `Cambio de guardia: ${partes.join('; ')}.`
+}
+
+const ddmm = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`
+
+export function textoMarcasManuales(dias) {
+  const c = dias.filter((d) => d.sinRegistro && (d.entrada || d.salida))
+  if (!c.length) return ''
+  return `Sin registro en el biométrico: ${c.map((d) => `${ddmm(d.fecha)} (laborado ${textoLaborado(d)})`).join('; ')}.`
+}
+
+export function textoAusencias(dias) {
+  const c = dias.filter((d) => d.ausencia)
+  if (!c.length) return ''
+  return `Ausencia: ${c.map((d) => `${ddmm(d.fecha)} ${d.ausencia.etiqueta}${d.ausencia.nota ? `, ${d.ausencia.nota}` : ''}`).join('; ')}.`
+}
+
+// Líneas sugeridas para el campo 20 a partir de lo anotado en el mapa
+export function lineasObservacion(dias) {
+  return [textoCambiosGuardia(dias), textoMarcasManuales(dias), textoAusencias(dias)].filter(Boolean)
 }
 
 export function textoHorario(asignado) {

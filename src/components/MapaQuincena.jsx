@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
-import { ArrowLeftRight, Check, PencilLine, RotateCcw, TriangleAlert, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ArrowLeftRight, Check, Fingerprint, PencilLine, RotateCcw, TriangleAlert, UserX, X } from 'lucide-react'
+import { tipoAusencia, TIPOS_AUSENCIA } from '../data/ausencias.js'
 import { mismoTurno } from '../lib/guardia.js'
 import { fmtHoras } from '../lib/motor.js'
 import { ESTADOS_PENDIENTES, textoHorario } from '../lib/periodo.js'
@@ -32,9 +33,10 @@ export function chipsResultado(r) {
 const corto = (t) => (t == null ? 'Libre' : t.texto != null ? 'Revisar' : `${t.inicio}–${t.fin}`)
 
 function Celda({ dia, activo, onClick }) {
-  const { fecha, asignado, entrada, salida, cambio, resultado: r } = dia
+  const { fecha, asignado, entrada, salida, cambio, ausencia, sinRegistro, resultado: r } = dia
   const tono = tonoTurno(asignado)
   const pendiente = ESTADOS_PENDIENTES.includes(r.estado)
+  const vacio = r.estado === 'sin-marcaje'
   const ds = diaSemana(fecha)
   const extras = r.diurnas + r.mixtas + r.nocturnas
   return (
@@ -43,9 +45,9 @@ function Celda({ dia, activo, onClick }) {
       onClick={onClick}
       aria-pressed={activo}
       aria-label={`${NOMBRES_DIA[ds]} ${isoADmy(fecha)}: ${textoHorario(asignado)}`}
-      className={`relative flex min-h-[86px] flex-col overflow-hidden rounded-lg border text-left transition active:scale-[0.97] ${
-        activo ? 'border-avior-light ring-2 ring-avior-bright' : 'border-avior-line'
-      } bg-avior-well`}
+      className={`relative flex min-h-[86px] flex-col overflow-hidden rounded-lg text-left transition active:scale-[0.97] ${
+        vacio ? 'border-2 border-dashed border-amber-400 bg-amber-950/50' : 'border bg-avior-well'
+      } ${activo ? 'ring-2 ring-avior-bright' : ''} ${activo && !vacio ? 'border-avior-light' : !vacio ? 'border-avior-line' : ''}`}
     >
       <span className={`h-1.5 w-full ${tono.banda}`} />
       <span className="flex items-baseline justify-between px-1.5 pt-1">
@@ -58,12 +60,22 @@ function Celda({ dia, activo, onClick }) {
         </span>
       </span>
       <span className={`px-1.5 pt-1 text-[10px] font-semibold leading-tight ${tono.texto}`}>{corto(asignado)}</span>
-      <span className="px-1.5 text-[10px] leading-tight text-avior-muted">
-        {entrada || salida ? `${entrada || '?'}–${salida || '?'}` : '—'}
-      </span>
+      {vacio ? (
+        <span className="flex items-center gap-1 px-1.5 text-[11px] font-bold leading-tight text-amber-300">
+          <TriangleAlert className="h-3 w-3 shrink-0" aria-hidden /> Sin marcas
+        </span>
+      ) : ausencia ? (
+        <span className="px-1.5 text-[11px] font-bold leading-tight text-red-300">{tipoAusencia(ausencia.tipo)?.corta}</span>
+      ) : (
+        <span className="px-1.5 text-[10px] leading-tight text-avior-muted">
+          {entrada || salida ? `${entrada || '?'}–${salida || '?'}` : '—'}
+        </span>
+      )}
       <span className="mt-auto flex items-center gap-1 px-1.5 pb-1">
         {extras > 0 && <span className="text-[10px] font-bold text-avior-ink">+{fmtHoras(extras)}h</span>}
         {cambio && <ArrowLeftRight className="h-3 w-3 text-sky-300" aria-label="Cambio de guardia" />}
+        {sinRegistro && <PencilLine className="h-3 w-3 text-avior-light" aria-label="Marcas cargadas a mano" />}
+        {ausencia && <UserX className="h-3 w-3 text-red-300" aria-label="Ausencia" />}
       </span>
     </button>
   )
@@ -86,10 +98,141 @@ function Chip({ activo, children, ...props }) {
 const inputHora =
   'w-full min-w-0 rounded-lg border border-avior-line bg-avior-field px-2 py-2 text-sm text-avior-ink disabled:opacity-60'
 
+const CAUSA_VACIO = {
+  fuera: 'Este día no está en el archivo del Bioadmin que cargaste. Descarga un marcaje más reciente o complétalo aquí.',
+  general:
+    'Nadie tiene marcas este día en el archivo: parece una falla del biométrico, de luz o de la descarga.',
+  propio: 'El Bioadmin no tiene marcas tuyas este día, aunque tenías turno.',
+}
+
+// Día con turno y sin marcas: el técnico indica si trabajó (y carga las horas) o si faltó.
+function PanelVacio({ dia, bloqueado, onAjuste, onTrabaje }) {
+  const { fecha, vacio, ausencia, sinRegistro } = dia
+  const [eligiendo, setEligiendo] = useState(false)
+  useEffect(() => setEligiendo(false), [fecha])
+  const quitar = { sinRegistro: undefined, ausencia: undefined, entrada: undefined, salida: undefined }
+
+  if (sinRegistro) {
+    return (
+      <div className="rounded-lg border border-avior-line bg-avior-well p-3 text-xs text-avior-ink">
+        <p className="flex items-start gap-2">
+          <Fingerprint className="mt-0.5 h-4 w-4 shrink-0 text-avior-light" aria-hidden />
+          <span>
+            <b>Marcas cargadas a mano.</b> Se llenaron con tu horario asignado. Si recuerdas la hora real de entrada o salida,
+            corrígela abajo: las horas extras salen de ahí.
+          </span>
+        </p>
+        {!bloqueado && (
+          <button type="button" onClick={() => onAjuste(fecha, quitar)} className="mt-2 font-semibold text-avior-light underline">
+            Deshacer
+          </button>
+        )}
+      </div>
+    )
+  }
+
+  if (ausencia || eligiendo) {
+    return (
+      <div className="space-y-3 rounded-lg border border-red-800 bg-red-950/40 p-3 text-xs text-red-100">
+        <p className="flex items-start gap-2">
+          <UserX className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <span>
+            <b>No trabajaste este turno.</b> Elige el motivo: va en la columna 19 del formato y el día queda sin bono ni horas
+            extras.
+          </span>
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {TIPOS_AUSENCIA.map((t) => (
+            <Chip
+              key={t.id}
+              activo={ausencia?.tipo === t.id}
+              disabled={bloqueado}
+              onClick={() => onAjuste(fecha, { ...quitar, ausencia: { tipo: t.id, nota: ausencia?.nota || '' } })}
+            >
+              {t.etiqueta}
+            </Chip>
+          ))}
+        </div>
+        {ausencia && (
+          <label className="block">
+            <span className="mb-1 block text-red-200/80">Detalle (opcional, va en observaciones)</span>
+            <input
+              type="text"
+              maxLength={80}
+              disabled={bloqueado}
+              value={ausencia.nota}
+              placeholder="Ej.: cita médica, permiso aprobado por el jefe"
+              onChange={(e) => onAjuste(fecha, { ausencia: { tipo: ausencia.tipo, nota: e.target.value } })}
+              className={`${inputHora} placeholder:text-avior-muted/60`}
+            />
+          </label>
+        )}
+        {!bloqueado && (
+          <button
+            type="button"
+            onClick={() => {
+              setEligiendo(false)
+              onAjuste(fecha, quitar)
+            }}
+            className="font-semibold text-red-200 underline"
+          >
+            {ausencia ? 'Deshacer' : 'Volver'}
+          </button>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div role="alert" className="space-y-3 rounded-lg border-2 border-dashed border-amber-400 bg-amber-950/60 p-3 text-amber-50">
+      <p className="flex items-start gap-2 text-sm">
+        <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" aria-hidden />
+        <span>
+          <b>Este día no tiene marcas.</b> <span className="text-xs text-amber-100/90">{CAUSA_VACIO[vacio] || CAUSA_VACIO.propio}</span>
+        </span>
+      </p>
+      {!bloqueado && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={onTrabaje}
+            className="flex min-h-[52px] items-center justify-center gap-2 rounded-lg bg-avior px-3 text-sm font-semibold text-white transition hover:bg-avior-bright active:scale-[0.98]"
+          >
+            <Fingerprint className="h-4 w-4" aria-hidden /> Trabajé, no se registró
+          </button>
+          <button
+            type="button"
+            onClick={() => setEligiendo(true)}
+            className="flex min-h-[52px] items-center justify-center gap-2 rounded-lg border border-avior-line bg-avior-nav px-3 text-sm font-semibold text-avior-ink transition active:scale-[0.98]"
+          >
+            <UserX className="h-4 w-4" aria-hidden /> No trabajé
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function Editor({ dia, catalogo, bloqueado, onAjuste, onRestablecer }) {
   const { fecha, original, asignado, marcas, entrada, salida, cambio, sugerencia, resultado: r } = dia
   const [otro, setOtro] = useState(false)
   useEffect(() => setOtro(false), [fecha])
+  const refEntrada = useRef(null)
+  const [enfocar, setEnfocar] = useState(false)
+  useEffect(() => {
+    if (enfocar && dia.sinRegistro) {
+      refEntrada.current?.focus()
+      setEnfocar(false)
+    }
+  }, [enfocar, dia.sinRegistro])
+  const conPanelVacio = Boolean(dia.vacio) && (r.estado === 'sin-marcaje' || dia.sinRegistro || dia.ausencia)
+  const pidiendoDecision = conPanelVacio && !dia.sinRegistro
+  const trabaje = () => {
+    onAjuste(fecha, { sinRegistro: true, ausencia: undefined, entrada: asignado.inicio, salida: asignado.fin })
+    setEnfocar(true)
+  }
+  // Marca incompleta: completar la que falta con la hora del horario asignado
+  const faltante = r.estado === 'incompleto' && asignado?.inicio ? (entrada ? ['salida', asignado.fin] : ['entrada', asignado.inicio]) : null
   const esOtro = asignado?.inicio && !catalogo.some((t) => mismoTurno(t, asignado))
   const ds = diaSemana(fecha)
 
@@ -105,6 +248,8 @@ function Editor({ dia, catalogo, bloqueado, onAjuste, onRestablecer }) {
           </button>
         )}
       </div>
+
+      {conPanelVacio && <PanelVacio dia={dia} bloqueado={bloqueado} onAjuste={onAjuste} onTrabaje={trabaje} />}
 
       {cambio?.auto && (
         <div className="rounded-lg border border-sky-700 bg-sky-950/60 p-3 text-xs text-sky-100">
@@ -203,6 +348,7 @@ function Editor({ dia, catalogo, bloqueado, onAjuste, onRestablecer }) {
         )}
       </div>
 
+      {!pidiendoDecision && (
       <div className="space-y-2">
         <p className="text-xs font-medium text-avior-muted">
           Horario laborado · marcas: {marcas.length ? marcas.join(' · ') : 'ninguna'}
@@ -215,6 +361,7 @@ function Editor({ dia, catalogo, bloqueado, onAjuste, onRestablecer }) {
             <label key={k} className="min-w-0">
               <span className="mb-1 block text-xs text-avior-muted">{t}</span>
               <input
+                ref={k === 'entrada' ? refEntrada : undefined}
                 type="time"
                 value={v || ''}
                 disabled={bloqueado}
@@ -224,7 +371,17 @@ function Editor({ dia, catalogo, bloqueado, onAjuste, onRestablecer }) {
             </label>
           ))}
         </div>
+        {faltante && !bloqueado && (
+          <button
+            type="button"
+            onClick={() => onAjuste(fecha, { [faltante[0]]: faltante[1], sinRegistro: true })}
+            className="flex min-h-[40px] items-center gap-1 text-xs font-semibold text-avior-light"
+          >
+            <Fingerprint className="h-3.5 w-3.5" aria-hidden /> Falta la {faltante[0]}: usar la del horario ({faltante[1]})
+          </button>
+        )}
       </div>
+      )}
 
       <label className="flex min-h-[44px] items-center gap-3 rounded-lg border border-avior-line bg-avior-field px-3">
         <input
@@ -261,8 +418,37 @@ export default function MapaQuincena({ dias, catalogo, bloqueado, onAjuste, onRe
   const [sel, setSel] = useState(primeroPendiente?.fecha || dias[0]?.fecha)
   const dia = dias.find((d) => d.fecha === sel) || dias[0]
   if (!dia) return null
+  const vacios = dias.filter((d) => d.resultado.estado === 'sin-marcaje')
   return (
     <div className="space-y-3">
+      {vacios.length > 0 && (
+        <div className="flex items-start gap-3 rounded-lg border-2 border-dashed border-amber-400 bg-amber-950/50 p-3 text-amber-50">
+          <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" aria-hidden />
+          <div className="min-w-0 flex-1 space-y-2 text-xs">
+            <p>
+              <b className="text-sm">
+                {vacios.length === 1 ? '1 día con turno y sin marcas' : `${vacios.length} días con turno y sin marcas`}
+              </b>
+              <br />
+              Si trabajaste y el biométrico no lo registró, complétalo. Si no, indica el motivo.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {vacios.map((d) => (
+                <button
+                  key={d.fecha}
+                  type="button"
+                  onClick={() => setSel(d.fecha)}
+                  className={`min-h-[40px] rounded-lg border px-3 font-semibold ${
+                    d.fecha === dia.fecha ? 'border-amber-300 bg-amber-400 text-black' : 'border-amber-600 text-amber-100'
+                  }`}
+                >
+                  {NOMBRES_DIA[diaSemana(d.fecha)].slice(0, 3)} {d.fecha.slice(8, 10)}/{d.fecha.slice(5, 7)}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-8">
         {dias.map((d) => (
           <Celda key={d.fecha} dia={d} activo={d.fecha === dia.fecha} onClick={() => setSel(d.fecha)} />
@@ -276,7 +462,9 @@ export default function MapaQuincena({ dias, catalogo, bloqueado, onAjuste, onRe
         <span className="flex items-center gap-1"><span className="h-2 w-3 rounded-sm bg-red-900/80" /> Libre</span>
         <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-400" /> Por revisar</span>
         <span className="flex items-center gap-1"><ArrowLeftRight className="h-3 w-3 text-sky-300" /> Cambio de guardia</span>
-        <span className="flex items-center gap-1"><PencilLine className="h-3 w-3" /> Toca un día para editarlo</span>
+        <span className="flex items-center gap-1"><span className="h-2 w-3 rounded-sm border border-dashed border-amber-400" /> Sin marcas</span>
+        <span className="flex items-center gap-1"><PencilLine className="h-3 w-3 text-avior-light" /> Marcas a mano</span>
+        <span className="flex items-center gap-1"><UserX className="h-3 w-3 text-red-300" /> Ausencia</span>
       </div>
       <Editor dia={dia} catalogo={catalogo} bloqueado={bloqueado} onAjuste={onAjuste} onRestablecer={onRestablecer} />
     </div>

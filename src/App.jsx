@@ -11,10 +11,10 @@ import { usePersistentState } from './hooks/usePersistentState.js'
 import { CLAVE, estadoInicial, migrateState, periodoPorDefecto } from './lib/estado.js'
 import { llenarFormato, MAX_OBSERVACIONES } from './lib/formato.js'
 import { catalogoTurnos, interpretarHorario, sugerirTecnico } from './lib/horario.js'
-import { interpretarMarcaje, marcasPorDia, sugerirEmpleado } from './lib/marcaje.js'
+import { coberturaMarcaje, interpretarMarcaje, marcasPorDia, sugerirEmpleado } from './lib/marcaje.js'
 import { totalizar } from './lib/motor.js'
 import {
-  armarQuincena, corteSugerido, diasQuincena, digitosCedula, ESTADOS_PENDIENTES, nombreArchivo, textoCambiosGuardia,
+  armarQuincena, corteSugerido, diasQuincena, digitosCedula, ESTADOS_PENDIENTES, lineasObservacion, nombreArchivo,
 } from './lib/periodo.js'
 import { isoADmy, NOMBRES_MES } from './lib/tiempo.js'
 import { ErrorArchivo, leerPrimeraHoja } from './lib/xlsxLectura.js'
@@ -62,6 +62,7 @@ export default function App() {
 
   // --- Cálculo de la quincena (se recalcula en vivo)
   const catalogo = useMemo(() => catalogoTurnos(horario), [horario])
+  const cobertura = useMemo(() => coberturaMarcaje(marcaje), [marcaje])
   const dias = useMemo(() => {
     if (!horario || !columna || !marcaje || !empleado) return []
     return armarQuincena(
@@ -69,12 +70,12 @@ export default function App() {
       horario.porTecnico[columna] || {},
       marcasPorDia(marcaje, empleado),
       ajustes,
-      { catalogo },
+      { catalogo, cobertura },
     )
-  }, [horario, columna, marcaje, empleado, ajustes, catalogo, periodo.anio, periodo.mes, periodo.quincena])
+  }, [horario, columna, marcaje, empleado, ajustes, catalogo, cobertura, periodo.anio, periodo.mes, periodo.quincena])
   const totales = useMemo(() => totalizar(dias.map((d) => d.resultado)), [dias])
   const pendientes = dias.filter((d) => ESTADOS_PENDIENTES.includes(d.resultado.estado))
-  const lineaCambios = textoCambiosGuardia(dias)
+  const lineasNuevas = lineasObservacion(dias).filter((l) => !observaciones.includes(l))
   const archivo = nombreArchivo(tecnico.nombre, periodo.anio, periodo.mes, periodo.quincena)
 
   // --- Carga de archivos
@@ -158,7 +159,7 @@ export default function App() {
     if (pendientes.length) {
       const lista = pendientes.map((d) => isoADmy(d.fecha).slice(0, 5)).join(', ')
       const ok = window.confirm(
-        `Hay ${pendientes.length} día(s) por revisar (${lista}): sin marcaje, marca incompleta, horario no reconocido o posible cambio de guardia.\n\n¿Generar de todos modos?`,
+        `Hay ${pendientes.length} día(s) por revisar (${lista}): turno sin marcas, marca incompleta, horario no reconocido o posible cambio de guardia.\n\n¿Generar de todos modos?`,
       )
       if (!ok) return
     }
@@ -549,14 +550,20 @@ export default function App() {
                   onChange={(e) => actualizar({ observaciones: e.target.value })}
                   ayuda={`${observaciones.length}/${MAX_OBSERVACIONES} caracteres`}
                 />
-                {lineaCambios && !observaciones.includes(lineaCambios) && !bloqueado && (
-                  <button
-                    type="button"
-                    onClick={() => actualizar({ observaciones: [observaciones.trim(), lineaCambios].filter(Boolean).join('\n').slice(0, MAX_OBSERVACIONES) })}
-                    className="flex items-center gap-1 text-xs font-medium text-avior-light"
-                  >
-                    + Añadir los cambios de guardia de la quincena
-                  </button>
+                {lineasNuevas.length > 0 && !bloqueado && (
+                  <div className="space-y-1 rounded-lg bg-avior-well p-2 text-xs">
+                    <p className="text-avior-muted">Anotado en el mapa:</p>
+                    {lineasNuevas.map((l) => (
+                      <p key={l} className="text-avior-ink">{l}</p>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => actualizar({ observaciones: [observaciones.trim(), ...lineasNuevas].filter(Boolean).join('\n').slice(0, MAX_OBSERVACIONES) })}
+                      className="flex min-h-[40px] items-center gap-1 font-semibold text-avior-light"
+                    >
+                      + Añadir a observaciones
+                    </button>
+                  </div>
                 )}
               </Seccion>
             )}

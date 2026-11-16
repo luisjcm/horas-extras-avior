@@ -15,6 +15,9 @@ La plantilla no contiene datos de personas: técnico y firmantes se escriben en 
 5. Revisa el **mapa de la quincena**: toca un día para cambiar el horario asignado
    (turnos del horario, Libre u otro), corregir entrada/salida, marcar feriado y ver el
    desglose. Los cambios de guardia se detectan solos y se pueden descartar.
+   Los días con turno y sin marcas se resaltan: si trabajaste y el biométrico no lo
+   registró, toca **Trabajé, no se registró** y corrige la hora; si no, **No trabajé** y
+   elige el motivo (va en la columna 19; tipos en `src/data/ausencias.js`).
 6. Observaciones opcionales (campo 20), con atajo para añadir los cambios de guardia.
 7. **Generar** → **Descargar** o **Compartir**. Las firmas se hacen a mano en el impreso.
 
@@ -37,7 +40,7 @@ La plantilla no contiene datos de personas: técnico y firmantes se escriben en 
   y se avisa para confirmar.
 
 ## Desarrollo
-```powershell
+```bash
 pnpm install
 pnpm dev        # http://localhost:5173
 pnpm test       # pruebas del motor

@@ -77,6 +77,18 @@ export function marcasPorDia(marcaje, codigo) {
   return out
 }
 
+// Qué días trae el archivo del Bioadmin (de cualquier empleado), para explicar
+// por qué un día está vacío: fuera de la descarga, nadie marcó, o solo falta el técnico.
+export function coberturaMarcaje(marcaje) {
+  const fechas = [...new Set((marcaje?.marcas || []).map((m) => m.fecha))].sort()
+  return {
+    desde: fechas[0] || null,
+    hasta: fechas[fechas.length - 1] || null,
+    fechas,
+    empleados: marcaje?.empleados?.length || 0,
+  }
+}
+
 // Sugiere el empleado del marcaje según cédula o nombre escritos.
 export function sugerirEmpleado(empleados, cedula, nombre) {
   if (!empleados?.length) return ''

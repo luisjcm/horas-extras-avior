@@ -67,8 +67,9 @@ function tramoExtra(a, b, cuando, reglas, r) {
  * @param {string|null} p.entrada 'HH:MM' primera marca del día
  * @param {string|null} p.salida  'HH:MM' última marca del día
  * @param {boolean} [p.feriado]
+ * @param {{tipo:string, etiqueta:string, nota?:string}|null} [p.ausencia] turno no laborado, indicado por el técnico
  */
-export function calcularDia({ fecha, asignado, entrada, salida, feriado = false }, reglas = REGLAS) {
+export function calcularDia({ fecha, asignado, entrada, salida, feriado = false, ausencia = null }, reglas = REGLAS) {
   const r = {
     bono: 0, diurnas: 0, mixtas: 0, nocturnas: 0,
     domingo: 0, descanso: 0, feriado: 0,
@@ -85,6 +86,12 @@ export function calcularDia({ fecha, asignado, entrada, salida, feriado = false 
   if (!libre && asignado.texto != null) {
     r.estado = 'revisar'
     r.detalle.push(`Horario no reconocido ("${asignado.texto}"); revisa este día manualmente`)
+    return r
+  }
+  // Ausencia indicada por el técnico en un día con turno: no se laboró, no hay bono ni extras
+  if (!libre && ausencia) {
+    r.estado = 'ausencia'
+    r.detalle.push(`Ausencia: ${ausencia.etiqueta}${ausencia.nota ? ` (${ausencia.nota})` : ''}; no se calcula bono ni horas extras`)
     return r
   }
   const incompleto = (e != null || s != null) && !trabajo
