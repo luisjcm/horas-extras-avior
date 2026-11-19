@@ -17,8 +17,8 @@ expone información sensible:
 - **Sin peticiones externas.** La app no carga fuentes, scripts ni recursos de otros sitios,
   y no usa analítica, cookies ni rastreo. La única descarga que hace es la plantilla vacía
   del formato, desde su propio dominio.
-- **Lo que se guarda queda en el teléfono.** Los firmantes, los datos del técnico y la
-  quincena en curso se guardan en el almacenamiento local del navegador (`localStorage`,
+- **Lo que se guarda queda en el teléfono.** Los firmantes, los datos de los técnicos y la
+  quincena en curso (de los dos módulos) se guardan en el almacenamiento local del navegador (`localStorage`,
   clave `he-avior:v1`) para no repetirlos cada quincena. No salen del dispositivo. **Nuevo**
   borra el marcaje y los ajustes; borrar los datos del sitio en el navegador elimina todo.
 - **El repositorio no contiene datos de personas.** La plantilla está limpia (sin nombres,
@@ -33,6 +33,11 @@ expone información sensible:
   en el impreso.
 
 ## Uso
+
+La app tiene dos módulos, que se eligen arriba en la pantalla de Captura. Los dos comparten
+los **firmantes**, la **quincena** y el **horario del mes**: se cargan una sola vez.
+
+### Individual (un técnico)
 
 1. **Firmantes** (22. Revisado por, 23. Revisado por y 24. Aprobado por): nombre obligatorio
    y cédula opcional. Quedan guardados para las próximas quincenas.
@@ -57,6 +62,23 @@ expone información sensible:
    guardia, marcas cargadas a mano y ausencias).
 7. **Generar → Descargar o Compartir.** Si hay días por revisar, se pide confirmación.
    **Corregir** desbloquea la edición.
+
+### Masivo (varios técnicos con el mismo horario)
+
+1. Firmantes, quincena y horario, igual que en el individual.
+2. **Marcajes:** carga varios .xlsx a la vez (uno por técnico o uno con todo el equipo).
+   Se pueden agregar más o quitar alguno. Si dos archivos repiten marcas, cuentan una vez.
+3. **Técnicos:** aparece una ficha por cada trabajador de los marcajes, con sus datos del
+   Bioadmin, su columna del horario (elegida por el nombre) y la casilla para incluirlo o no.
+   Avisa si dos técnicos quedan con la misma columna.
+4. **Revisión por técnico:** se cambia de técnico con las pestañas (el número indica días
+   por revisar) y cada uno tiene su mapa y sus observaciones, con las mismas opciones del
+   módulo individual.
+5. **Generar** crea un formato por técnico, cada uno con él mismo en "Elaborado por".
+   **Descargar** baja un .zip con todos; **Compartir** los envía juntos (si el navegador no
+   puede, descarga el .zip); en cada tarjeta se puede ver la vista previa o bajar ese Excel.
+
+Lo ajustado en cada técnico (tildes, código, columna) se recuerda para la próxima quincena.
 
 ## Reglas de cálculo (`src/lib/motor.js`, `src/data/reglas.js`)
 
@@ -89,7 +111,7 @@ expone información sensible:
 |---|---|
 | Interfaz | React 18, Tailwind CSS 3, iconos lucide-react |
 | Compilación | Vite 5 (`@vitejs/plugin-react`), PostCSS + Autoprefixer |
-| Excel | JSZip 3 + `DOMParser` del navegador (lectura y escritura) |
+| Excel | JSZip 3 + `DOMParser` del navegador (lectura, escritura y .zip del modo masivo) |
 | PWA | `manifest.webmanifest` y service worker propio (`public/sw.js`, network-first, uso sin señal) |
 | Persistencia | `localStorage` con migración defensiva del estado (`src/lib/estado.js`) |
 | Pruebas | Vitest 2 + jsdom |
@@ -105,13 +127,17 @@ openpyxl eliminan al reescribir el archivo.
 
 ```
 src/
-  App.jsx                    interfaz completa (Captura / Formato)
-  components/                MapaQuincena, VistaResultado, ui
+  App.jsx                    marco: cabecera, selector de módulo y avisos
+  modos/Individual.jsx       módulo individual
+  modos/Masivo.jsx           módulo masivo
+  components/                MapaQuincena, VistaResultado, secciones comunes, ui
   lib/motor.js               cálculo puro por día y totales
   lib/guardia.js             detección de cambios de guardia
   lib/periodo.js             quincena, ajustes del mapa, textos del formato
   lib/horario.js             lectura del horario mensual
   lib/marcaje.js             lectura del marcaje y datos del técnico
+  lib/masivo.js              combinar marcajes y fichas de técnicos (modo masivo)
+  lib/archivos.js            descarga, compartir y .zip
   lib/formato.js             llenado del FO-VCH-038/16 (edición del XML)
   lib/estado.js              estado inicial y migración
   data/                      reglas, feriados y tipos de ausencia

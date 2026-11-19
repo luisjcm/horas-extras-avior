@@ -37,6 +37,9 @@ export function estadoInicial() {
     ajustes: {},
     observaciones: '',
     generado: null,
+    // Módulo activo y estado del modo masivo (varios técnicos con un mismo horario)
+    modo: 'individual',
+    masivo: { marcajes: [], tecnicos: {}, generado: null },
   }
 }
 
@@ -63,6 +66,30 @@ export function limpiarAjustes(a) {
     if (Object.keys(x).length) out[fecha] = x
   }
   return out
+}
+
+const marcajeOk = (m) => obj(m) && Array.isArray(m.marcas) && Array.isArray(m.empleados)
+
+export function limpiarMasivo(x) {
+  const m = obj(x) || {}
+  const tecnicos = {}
+  for (const [ced, v] of Object.entries(obj(m.tecnicos) || {})) {
+    const d = obj(v)
+    if (!ced.trim() || !d) continue
+    tecnicos[ced] = {
+      incluir: d.incluir !== false,
+      nombre: txt(d.nombre),
+      codigo: txt(d.codigo),
+      columna: txt(d.columna),
+      ajustes: limpiarAjustes(d.ajustes),
+      observaciones: txt(d.observaciones),
+    }
+  }
+  return {
+    marcajes: Array.isArray(m.marcajes) ? m.marcajes.filter(marcajeOk) : [],
+    tecnicos,
+    generado: obj(m.generado),
+  }
 }
 
 // Completa o repara un estado guardado (estructura antigua, incompleta o dañada).
@@ -95,5 +122,7 @@ export function migrateState(saved) {
     ajustes: limpiarAjustes(s.ajustes),
     observaciones: txt(s.observaciones),
     generado: obj(s.generado),
+    modo: s.modo === 'masivo' ? 'masivo' : 'individual',
+    masivo: limpiarMasivo(s.masivo),
   }
 }

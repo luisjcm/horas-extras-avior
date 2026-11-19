@@ -44,7 +44,7 @@ export const Campo = forwardRef(function Campo(
   )
 })
 
-export function BotonArchivo({ etiqueta, archivo, onArchivo, error, disabled, id }) {
+export function BotonArchivo({ etiqueta, archivo, onArchivo, onArchivos, multiple = false, ayuda, error, disabled, id }) {
   const input = useRef(null)
   return (
     <div id={id} className={error ? 'animate-shake' : ''}>
@@ -59,18 +59,23 @@ export function BotonArchivo({ etiqueta, archivo, onArchivo, error, disabled, id
         <Upload className="h-5 w-5 shrink-0 text-avior-light" aria-hidden />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium text-avior-ink">{archivo || etiqueta}</span>
-          <span className="block text-xs text-avior-muted">{archivo ? 'Toca para cambiar el archivo' : 'Archivo .xlsx'}</span>
+          <span className="block text-xs text-avior-muted">
+            {ayuda || (archivo ? 'Toca para cambiar el archivo' : 'Archivo .xlsx')}
+          </span>
         </span>
       </button>
       <input
         ref={input}
         type="file"
         accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        multiple={multiple}
         className="hidden"
         onChange={(e) => {
-          const f = e.target.files?.[0]
+          const fs = [...(e.target.files || [])]
           e.target.value = ''
-          if (f) onArchivo(f)
+          if (!fs.length) return
+          if (multiple) onArchivos(fs)
+          else onArchivo(fs[0])
         }}
       />
       {error && <span className="mt-1 block text-xs font-medium text-red-400">{error}</span>}
